@@ -124,26 +124,7 @@ The evaluation suite comprises a balanced workload of 600 prompts (200 prompts p
    - End-to-End Latency
    - Router Overhead ($\Delta t_{\text{route}}$)
 
----
-
-## Project Structure
-
-```text
-LLM_Energy_Benchmark/
-├── AGENTS.md                  # Detailed guidelines and protocols for autonomous agents
-├── README.md                  # Project documentation and methodology
-├── requirements.txt           # Python dependencies (pynvml, sentence-transformers, etc.)
-├── Tier_1/                    # Tier 1 experiments (1B Q8_0)
-│   ├── check_model.ipynb      # Verification of loaded Ollama instance
-│   ├── GPU_power.ipynb        # Basic NVML power verification
-│   └── Measuring_ai.ipynb     # Interactive energy measurement harness
-└── Tier_2/                    # Tier 2 experiments (3B Q4_K_M)
-    ├── check_model.ipynb      # Verification of Tier 2 model
-    ├── GPU_power.ipynb        # NVML test harness
-    └── Measuring_ai.ipynb     # Tier 2 energy benchmarking notebook
-```
-
----
+--
 
 ## Prerequisites & Installation
 
@@ -212,78 +193,6 @@ To evaluate the 2 candidate models per tier (Meta Llama vs. Alibaba Qwen 2.5) an
 4. Profiles resting GPU idle power $P_{\text{idle}}$ and executes live inference with 50 ms NVML power integration.
 5. Generates high-resolution head-to-head comparison plots in `figures/model_comparisons/<gpu>/`.
 6. Exports Markdown and LaTeX comparative tables and opens the figures folder in Windows Explorer upon completion.
-
----
-
-## Usage Guide
-
-### Basic Energy Measurement Example
-
-The following script profiles baseline idle power, executes an inference request, monitors dynamic power via NVML every 50 ms, and computes net dynamic energy using trapezoidal integration:
-
-```python
-import time
-import threading
-import requests
-from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetPowerUsage, nvmlShutdown
-
-nvmlInit()
-handle = nvmlDeviceGetHandleByIndex(0)
-
-def get_power_watts():
-    return nvmlDeviceGetPowerUsage(handle) / 1000.0
-
-def measure_idle_power(seconds=3):
-    readings = []
-    start = time.perf_counter()
-    while time.perf_counter() - start < seconds:
-        readings.append(get_power_watts())
-        time.sleep(0.05)
-    return sum(readings) / len(readings)
-
-def power_monitor(samples, stop_event):
-    while not stop_event.is_set():
-        samples.append((time.perf_counter(), get_power_watts()))
-        time.sleep(0.05)
-
-def calculate_energy(samples):
-    energy = 0.0
-    for i in range(1, len(samples)):
-        t1, p1 = samples[i - 1]
-        t2, p2 = samples[i]
-        energy += ((p1 + p2) / 2.0) * (t2 - t1)
-    return energy
-
-# 1. Profile idle power
-p_idle = measure_idle_power(seconds=3)
-
-# 2. Start monitoring daemon
-samples = []
-stop_event = threading.Event()
-monitor_thread = threading.Thread(target=power_monitor, args=(samples, stop_event))
-monitor_thread.start()
-
-# 3. Execute inference request
-start_time = time.perf_counter()
-res = requests.post(
-    "http://localhost:11434/api/generate",
-    json={"model": "llama3.2:1b", "prompt": "Summarize the carbon footprint of AI.", "stream": False}
-)
-latency = time.perf_counter() - start_time
-
-# 4. Stop monitor and compute metrics
-stop_event.set()
-monitor_thread.join()
-
-total_energy = calculate_energy(samples)
-net_energy = total_energy - (p_idle * latency)
-
-print(f"Latency: {latency:.2f} s | Total Energy: {total_energy:.2f} J | Net Energy: {net_energy:.2f} J")
-nvmlShutdown()
-```
-
-> [!TIP]
-> When executing multi-batch benchmark runs, ensure adequate cool-down delays (e.g. 5–10 seconds) between queries to allow GPU temperatures and power draws to return to stable idle levels.
 
 ---
 
